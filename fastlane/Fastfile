@@ -1,0 +1,277 @@
+# This file contains the fastlane.tools configuration
+# You can find the documentation at https://docs.fastlane.tools
+#
+# For a list of all available actions, check out
+#
+#     https://docs.fastlane.tools/actions
+#
+# For a list of all available plugins, check out
+#
+#     https://docs.fastlane.tools/plugins/available-plugins
+#
+
+# Uncomment the line if you want fastlane to automatically update itself
+# update_fastlane
+
+# This is the minimum version number required.
+# Update this, if you use features of a newer version
+fastlane_version "2.0"
+fastlane_require 'fastlane-plugin-appcenter'
+
+def dir_pref
+	return Actions.lane_context[SharedValues::ENVIRONMENT]
+end
+
+default_platform(:ios)
+
+platform :ios do
+
+	desc "Clear data and folders"
+	lane :clear_data do
+		clear_derived_data
+		if File.directory?("../reports")
+			FileUtils.remove_dir(File.expand_path("../reports"))
+		end
+    if File.directory?("../reports")
+      FileUtils.remove_dir(File.expand_path("../reports"))
+    end
+	end
+
+  desc "Install pod dependencies"
+  lane :install_pods do
+    cocoapods
+  end
+
+  desc "Prepares the framework for release"
+  desc "This lane should be run from your local machine, and will push a tag to the remote when finished."
+  desc " * **`allow_dirty_branch`**: Allows the git branch to be dirty before continuing. Defaults to false"
+  lane :build_development do |options|
+
+    #Ensure the branch is clean
+    if options[:allow_dirty_branch] != true
+      ensure_git_status_clean
+    end
+
+    nr_changelog_from_git_commits
+
+    bump_version
+# development
+# ad-hoc
+    build_ios_app(
+      scheme: ENV["SCHEME"],
+      export_method: 'development',
+      output_directory: './artifacts',
+      include_symbols: true,
+      include_bitcode: false,
+      silent: true,
+      export_options: {
+        compileBitcode: false,
+        include_bitcode: false
+      }
+    )
+
+  end
+
+  lane :push_to_git_tags_and_commit do |options|
+    version_code = get_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleVersion")
+    version_name = get_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleShortVersionString")
+    push_to_git_tags_and_commit(version_code: version_code, version_name: version_name)
+  end
+
+  private_lane :bump_version do
+    version_code = get_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleVersion").to_i + 1
+    set_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleVersion", value:version_code.to_s)
+  end
+
+end
+
+
+
+
+platform :android do
+
+  TASK_CLEAN = "clean"
+  TASK_BUILD = "assembleDebug"
+	# TASK_JACOCO_TEST_REPORT = "jacocoTestReport"
+	# TASK_TEST = "testDebug"
+	# TASK_LINT = "lintDebug"
+	# TASK_DETEKT = "detekt"
+
+  def gradle_task(options)
+  	gradle(
+  		task: ":#{ENV["SCHEME"]}:#{options[:task]}",
+  		print_command_output: true
+  	)
+  end
+
+  def bump_version_code(options)
+    path = "../#{options[:gradle_file]}"
+    re = /versionCode\s+(\d+)/
+
+    s = File.read(path)
+    versionCode = s[re, 1].to_i
+    s[re, 1] = (versionCode + 1).to_s
+
+    f = File.new(path, 'w')
+    f.write(s)
+    f.close
+  	return (versionCode + 1).to_s
+  end
+
+	desc "Clear data and folders"
+	lane :clear_data do
+
+		gradle(
+			task: "#{TASK_CLEAN}",
+			print_command_output: true
+		)
+
+		if File.directory?("../reports")
+			FileUtils.remove_dir(File.expand_path("../reports"))
+		end
+
+	end
+
+
+  desc "Prepares the framework for release"
+  desc "This lane should be run from your local machine, and will push a tag to the remote when finished."
+  desc " * **`allow_dirty_branch`**: Allows the git branch to be dirty before continuing. Defaults to false"
+  lane :build_development do |options|
+
+    #Ensure the branch is clean
+    if options[:allow_dirty_branch] != true
+      ensure_git_status_clean
+    end
+
+    nr_changelog_from_git_commits
+
+    bump_version
+
+		gradle_task(task:TASK_BUILD)
+		copy_artifacts(
+			keep_original: true,
+			artifacts: lane_context[SharedValues::GRADLE_APK_OUTPUT_PATH]
+		)
+
+  end
+
+  lane :push_to_git_tags_and_commit do |options|
+    gradle_path = "#{ENV["PROJ_SOURCES_PATH"]}/build.gradle"
+		version_code = android_get_version_code(gradle_file: gradle_path)
+		version_name = android_get_version_name(gradle_file: gradle_path)
+    nr_push_to_git_tags(version_code: version_code, version_name: version_name)
+
+  end
+
+  private_lane :bump_version do
+    gradle_path = "#{ENV["PROJ_SOURCES_PATH"]}/build.gradle"
+    bump_version_code(gradle_file: gradle_path)
+  end
+
+end
+
+desc "Upload app to appcenter"
+lane :upload_to_appcenter do |options|
+  group = options[:group] ? options[:group] : "Collaborators"
+  info = options[:info] ? options[:info] : "New Release"
+
+  notes = "### Info:\n#{info}"
+  if options[:changelog] == true
+    if File.exist?("../reports/#{dir_pref}/CHANGELOG.md")
+      target_path = File.expand_path("../reports/#{dir_pref}/CHANGELOG.md")
+      notes << "\n\n#{sh("cat #{target_path}")}"
+    end
+  end
+
+  if lane_context[SharedValues::DEFAULT_PLATFORM] == :android
+    ENV["APPCENTER_DISTRIBUTE_APK"] = File.expand_path(Dir.glob("../artifacts/*.apk").first)
+  end
+
+  if lane_context[SharedValues::DEFAULT_PLATFORM] == :ios
+    ENV["APPCENTER_DISTRIBUTE_IPA"] = File.expand_path(Dir.glob("../artifacts/*.ipa").first)
+    ENV["APPCENTER_DISTRIBUTE_DSYM"] = File.expand_path(Dir.glob("../artifacts/*.app.dSYM.zip").first)
+  end
+
+  appcenter_upload(
+    release_notes: notes,
+    should_clip: true,
+    group: group
+  )
+end
+
+# private_lane
+
+desc "Prepares changelog from git commits"
+private_lane :nr_changelog_from_git_commits do
+
+  changelog = changelog_from_git_commits(
+    pretty: "- (%h) %s",
+    quiet: false,
+    merge_commit_filtering: 'exclude_merges',
+    match_lightweight_tag: "#{ENV["PROJECT_NAME"]}/",
+  )
+
+  unless File.directory?("../reports/#{dir_pref}")
+    FileUtils.mkdir_p(File.expand_path("../reports/#{dir_pref}"))
+  end
+
+  target_path = File.expand_path("../reports/#{dir_pref}/CHANGELOG.md")
+  FileUtils.touch(target_path)
+  File.open(target_path, 'wb') { |file| file.write(changelog) }
+
+  changelog_path = target_path
+  changelog_insert_delimiter = ENV["JIRA_ISSUE_KEY"]
+  nr_insert_text_into_file(
+    file_path: changelog_path,
+    text: ENV["JIRA_URL"],
+    insert_delimiter: changelog_insert_delimiter
+  )
+
+end
+
+private_lane :nr_push_to_git_tags do |options|
+
+  if !options[:version_code] || !options[:version_name]
+    raise "No version specified!".red
+  end
+
+  version_code = options[:version_code]
+  version_name = options[:version_name]
+
+  remote = options[:remote] ? options[:remote] : (ENV["DEPLOY_REMOTE"] ? ENV["DEPLOY_REMOTE"] : "origin")
+  allowed_branch = options[:allow_branch] ? options[:allow_branch] : (ENV["DEPLOY_BRANCH"] ? ENV["DEPLOY_BRANCH"] : "master")
+
+  puts "Preparing for the #{ENV["PROJECT_NAME"]}_#{version_name}(#{version_code}) release"
+
+  # # commit the branch
+  # git_commit(
+  #   path: ".",
+  #   message: "Preparing for the #{ENV["CARTHAGE_FRAMEWORK_NAME"]}_#{version_name}(#{version_code}) release"
+  # )
+  #
+  # #push the branch
+  # push_to_git_remote(
+  #   remote: remote,
+  #   local_branch: "HEAD",
+  #   remote_branch: allowed_branch,
+  # )
+  #
+  # # tag the repo
+  # add_git_tag(
+  #   tag: get_revision_tag
+  # )
+  #
+  # # push the tag
+  # nr_push_git_tags_to_remote(
+  #   remote: remote
+  # )
+end
+
+error do |lane, exception|
+
+  # reset_git_repo(
+  #   force: true
+  # )
+
+	teams(message: exception.message, success: false)
+end
