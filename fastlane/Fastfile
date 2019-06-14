@@ -269,7 +269,7 @@ private_lane :nr_push_to_git_tags do |options|
   # commit the branch
   git_commit(
     path: ".",
-    message: "Preparing for the #{ENV["CARTHAGE_FRAMEWORK_NAME"]}_#{version_name}(#{version_code}) release"
+    message: "Preparing for the #{ENV["PROJECT_NAME"]}_#{version_name}(#{version_code}) release"
   )
 
   #push the branch
@@ -281,7 +281,7 @@ private_lane :nr_push_to_git_tags do |options|
 
   # tag the repo
   add_git_tag(
-    tag: get_revision_tag
+    tag: "#{ENV["PROJECT_NAME"]}/#{version_name}/#{version_code}"
   )
 
   # push the tag
