@@ -98,7 +98,7 @@ platform :ios do
   lane :push_to_git_tags_and_commit do |options|
     version_code = get_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleVersion")
     version_name = get_info_plist_value(path: ENV["DEPLOY_PLIST_PATH"], key: "CFBundleShortVersionString")
-    push_to_git_tags_and_commit(version_code: version_code, version_name: version_name)
+    nr_push_to_git_tags(version_code: version_code, version_name: version_name)
   end
 
   private_lane :bump_version do
