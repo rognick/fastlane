@@ -55,8 +55,7 @@ platform :ios do
     nr_changelog_from_git_commits
 
     bump_version
-# development
-# ad-hoc
+
     build_ios_app(
       scheme: ENV["SCHEME"],
       export_method: 'development',
@@ -70,6 +69,30 @@ platform :ios do
       }
     )
 
+  end
+
+  lane :build_ad_hoc do |options|
+    #Ensure the branch is clean
+    if options[:allow_dirty_branch] != true
+      ensure_git_status_clean
+    end
+
+    nr_changelog_from_git_commits
+
+    bump_version
+
+    build_ios_app(
+      scheme: ENV["SCHEME"],
+      export_method: 'ad-hoc',
+      output_directory: './artifacts',
+      include_symbols: true,
+      include_bitcode: false,
+      silent: true,
+      export_options: {
+        compileBitcode: false,
+        include_bitcode: false
+      }
+    )
   end
 
   lane :push_to_git_tags_and_commit do |options|
@@ -243,28 +266,32 @@ private_lane :nr_push_to_git_tags do |options|
 
   puts "Preparing for the #{ENV["PROJECT_NAME"]}_#{version_name}(#{version_code}) release"
 
-  # # commit the branch
-  # git_commit(
-  #   path: ".",
-  #   message: "Preparing for the #{ENV["CARTHAGE_FRAMEWORK_NAME"]}_#{version_name}(#{version_code}) release"
-  # )
-  #
-  # #push the branch
-  # push_to_git_remote(
-  #   remote: remote,
-  #   local_branch: "HEAD",
-  #   remote_branch: allowed_branch,
-  # )
-  #
-  # # tag the repo
-  # add_git_tag(
-  #   tag: get_revision_tag
-  # )
-  #
-  # # push the tag
-  # nr_push_git_tags_to_remote(
-  #   remote: remote
-  # )
+  # commit the branch
+  git_commit(
+    path: ".",
+    message: "Preparing for the #{ENV["CARTHAGE_FRAMEWORK_NAME"]}_#{version_name}(#{version_code}) release"
+  )
+
+  #push the branch
+  push_to_git_remote(
+    remote: remote,
+    local_branch: "HEAD",
+    remote_branch: allowed_branch,
+  )
+
+  # tag the repo
+  add_git_tag(
+    tag: get_revision_tag
+  )
+
+  # push the tag
+  nr_push_git_tags_to_remote(
+    remote: remote
+  )
+end
+
+lane :teams_message do |options|
+	teams(options)
 end
 
 error do |lane, exception|
