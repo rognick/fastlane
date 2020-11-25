@@ -67,3 +67,11 @@ APPCENTER_API_TOKEN=""
 JIRA_URL="server_url/jira/browse/"
 JIRA_ISSUE_KEY="(SF|PSD|PSD2)"
 ```
+## Fastfile
+```
+import_from_git(
+  url: "https://github.com/rognick/fastlane.git", # The URL of the repository to import the Fastfile from.
+  branch: "master", # The branch to checkout on the repository
+  path: "fastlane/Fastfile"
+)
+```
